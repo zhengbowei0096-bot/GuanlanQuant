@@ -38,6 +38,7 @@ Public source and documentation only. Local runtime records remain on your compu
 | [tests/test_model_activity.py](../tests/test_model_activity.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_model_candidates.py](../tests/test_model_candidates.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_model_monitor.py](../tests/test_model_monitor.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
+| [tests/test_network_recovery.py](../tests/test_network_recovery.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_next_session_plan.py](../tests/test_next_session_plan.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_paper_account.py](../tests/test_paper_account.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_plain_chinese.py](../tests/test_plain_chinese.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
@@ -48,6 +49,7 @@ Public source and documentation only. Local runtime records remain on your compu
 | [tests/test_research_policy.py](../tests/test_research_policy.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_risk_control.py](../tests/test_risk_control.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_risk_models.py](../tests/test_risk_models.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
+| [tests/test_runtime_recovery.py](../tests/test_runtime_recovery.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_seven_metrics.py](../tests/test_seven_metrics.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_slot_upgrade.py](../tests/test_slot_upgrade.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
 | [tests/test_strategy_experiment.py](../tests/test_strategy_experiment.py) | Regression and integrity checks, run with unittest. (回归与完整性检查。) |
