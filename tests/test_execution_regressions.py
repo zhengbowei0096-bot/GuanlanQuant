@@ -145,3 +145,13 @@ class UpgradeReviewTests(unittest.TestCase):
         with patch('asharequant.dynamic_service.session',return_value='CONTINUOUS'):
             with self.assertRaisesRegex(ValueError,'CLOSED_SESSION'):approve_upgrade(self.root,self.old,'a'*64,'test')
         with self.assertRaisesRegex(ValueError,'REVIEW_REQUIRED'):approve_upgrade(self.root,self.old,'','test')
+    def test_explicit_failed_open_recovery_requires_no_current_session_activity(self):
+        at=pd.Timestamp('2026-10-26T09:40:00+08:00')
+        with patch('asharequant.dynamic_service.now',return_value=at),patch('asharequant.dynamic_service.days',return_value=pd.DatetimeIndex(['2026-10-23','2026-10-26'])):
+            for stamp in ('2026-10-26T09:31:00+08:00','2026-10-27T09:31:00+08:00'):
+                with db_open(self.root) as db:persist(db,{**self.state,'last_cycle_at':stamp})
+                with self.assertRaisesRegex(ValueError,'NO_CURRENT_SESSION_ACTIVITY'):approve_upgrade(self.root,self.old,'a'*64,'review',recover_failed_open=True)
+            with db_open(self.root) as db:persist(db,{**self.state,'last_cycle_at':'2026-10-23T14:55:00+08:00'})
+            result=approve_upgrade(self.root,self.old,'a'*64,'review',recover_failed_open=True)
+            self.assertEqual(result['status'],'UPGRADE_REVIEW_RECORDED')
+            with db_open(self.root) as db:self.assertEqual(next(iter(get(db,'execution_upgrades').values()))['maintenance_mode'],'FAILED_OPEN_RECOVERY')

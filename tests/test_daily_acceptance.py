@@ -9,6 +9,17 @@ from asharequant.scheduler import due
 from asharequant.core import TZ
 ROOT=Path(__file__).resolve().parents[1]
 class AcceptanceTests(unittest.TestCase):
+ def test_dynamic_daily_does_not_require_legacy_account_plan(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);shutil.copy(ROOT/'config.json',root/'config.json');(root/'dynamic_config.json').write_text('{"enabled":true}')
+   for failure in (False,True):
+    commands=[]
+    def execute(command):
+     commands.append(command);return 2 if failure and command=='run' else 0
+    with patch('asharequant.daily.calendar',return_value=(pd.DatetimeIndex(['2026-10-20']),{})):
+     result=run(root,datetime(2026,10,20,19,tzinfo=TZ),execute,verify=True)
+    self.assertNotIn('paper-account',commands);self.assertEqual(commands.count('dynamic-inputs'),1)
+    self.assertEqual(result['status'],'FAILED' if failure else 'SUCCESS')
  def test_acceptance_separate_from_scheduled_and_repeated(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);shutil.copy(ROOT/'config.json',root/'config.json')

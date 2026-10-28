@@ -89,7 +89,7 @@ class ExecutionTests(unittest.TestCase):
    folder=root/'reports/active_research/latest';folder.mkdir(parents=True);(folder/'report.json').write_text(json.dumps(r))
    def run_at(t):
     q={**self.q,'asof':t.isoformat(),'volume_shares':10000000+(t-self.at).total_seconds()*10000}
-    with patch('asharequant.dynamic_service.now',return_value=t),patch('asharequant.dynamic_service.collect',return_value=({'600031':q},{'600031':q})),patch('asharequant.dynamic_service.observed_bar',return_value={'volume':q['volume_shares']}),patch('asharequant.dynamic_service.quality',return_value=[]),patch('asharequant.dynamic_service.dynamic_plan',return_value=(self.plan,{'at':t.isoformat()})),patch('asharequant.dynamic_service.snapshot',return_value={}),patch('asharequant.dynamic_service.adjust',side_effect=lambda plan,*args:(plan,{'buy_blocks':{}})):
+    with patch('asharequant.dynamic_service.source',return_value=r),patch('asharequant.dynamic_service.now',return_value=t),patch('asharequant.dynamic_service.collect',return_value=({'600031':q},{'600031':q})),patch('asharequant.dynamic_service.observed_bar',return_value={'volume':q['volume_shares']}),patch('asharequant.dynamic_service.quality',return_value=[]),patch('asharequant.dynamic_service.dynamic_plan',return_value=(self.plan,{'at':t.isoformat()})),patch('asharequant.dynamic_service.snapshot',return_value={}),patch('asharequant.dynamic_service.adjust',side_effect=lambda plan,*args:(plan,{'buy_blocks':{}})):
      return cycle(root)
    self.assertEqual(run_at(self.at)['status'],'RUNNING_PAPER_ONLY');self.assertEqual(run_at(self.at)['status'],'ALREADY_PROCESSED');run_at(self.at+pd.Timedelta(seconds=30));run_at(self.at+pd.Timedelta(seconds=60))
    with db_open(root) as db:

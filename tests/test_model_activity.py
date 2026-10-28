@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import pandas as pd
 from bs4 import BeautifulSoup
-from asharequant.paper_account import put
+from asharequant.paper_account import put,digest
 from asharequant.reporting.model_activity import collect, document
 from asharequant.daily_bundle import export
 
@@ -43,6 +43,26 @@ class ModelActivityTests(unittest.TestCase):
         for text in ('已保存 1 组最终拟合','5日涨跌幅','拟合约束强度 100','原记录未保存最终训练样本数','配置的训练样本下限：504'):
             self.assertIn(text,page)
         self.assertNotIn('实际训练1260',page)
+
+    def test_independent_snapshot_used_without_legacy_plan_or_double_count(self):
+        self.save(active=False)
+        p=self.root/'data/dynamic/model_inputs';(p/'versions').mkdir(parents=True)
+        bundle=dict(available_at='2024-01-02T19:00:00+08:00',spec=self.spec,predictions=self.payload)
+        checksum=digest(bundle);(p/'versions'/(checksum+'.json')).write_text(json.dumps(bundle))
+        (p/'latest.json').write_text(json.dumps({'sha256':checksum}))
+        result=collect(self.root,'2024-01-02')
+        self.assertEqual(len(result['days']),1);self.assertEqual(len(result['active']['rows']),1)
+        self.assertFalse(result['issues'])
+        # A broken independent source cannot silently fall back to the old report.
+        (p/'latest.json').write_text(json.dumps({'sha256':'bad'}))
+        self.assertIsNone(collect(self.root,'2024-01-02')['active'])
+
+    def test_independent_training_is_visible_without_old_ledger(self):
+        p=self.root/'data/dynamic/model_inputs';(p/'versions').mkdir(parents=True)
+        bundle=dict(available_at='2024-01-02T19:00:00+08:00',spec=self.spec,predictions=self.payload)
+        checksum=digest(bundle);(p/'versions'/(checksum+'.json')).write_text(json.dumps(bundle));(p/'latest.json').write_text(json.dumps({'sha256':checksum}))
+        data=collect(self.root,'2024-01-02')
+        self.assertEqual(len(data['days']),1);self.assertIsNotNone(data['active']);self.assertFalse(self.path.exists());self.assertFalse(data['issues'])
 
     def test_eligible_is_not_adopted_and_three_panels(self):
         self.save();page=document(self.root,self.report,'2024-01-02')
