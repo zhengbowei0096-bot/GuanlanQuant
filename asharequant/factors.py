@@ -105,7 +105,8 @@ def worker(job,output,root):
   def bounded(self,method,url,**kwargs):
    kwargs['timeout']=(8,20)
    kwargs['verify']=str(bundle) if 'swsresearch.com' in url else True
-   return original(self,method,url,**kwargs)
+   from .network_retry import request_read
+   return request_read(original,self,method,url,**kwargs)
   requests.sessions.Session.request=bounded
   ds=job['dataset'];params=job['params']
   if ds in ('financial_balance','financial_income','financial_cashflow'):

@@ -13,7 +13,7 @@ from .report import build_report
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='AshareQuant 本地行情与研究系统')
-    parser.add_argument('command', choices=['active-research','strategy-experiment','research-paper','risk-plan','paper-account','broker-refresh','public-history','connection-health','prediction-quality','iteration','code-guard','history-refresh','lifecycle', 'strict-validate', 'daily', 'daily-verify', 'strict-audit', 'run', 'report', 'check', 'status', 'database', 'forecast', 'indices', 'index-research', 'factors', 'factor-research', 'model-research', 'risk-research', 'model-monitor', 'decision', 'portfolio-validate', 'connect-refresh', 'connections', 'account-import', 'fees-import', 'fee-observation', 'probability-calibrate', 'execution-replay', 'history-import'])
+    parser.add_argument('command', choices=['dynamic-inputs','active-research','strategy-experiment','research-paper','risk-plan','paper-account','broker-refresh','public-history','connection-health','prediction-quality','iteration','code-guard','history-refresh','lifecycle', 'strict-validate', 'daily', 'daily-verify', 'strict-audit', 'run', 'report', 'check', 'status', 'database', 'forecast', 'indices', 'index-research', 'factors', 'factor-research', 'model-research', 'risk-research', 'model-monitor', 'decision', 'portfolio-validate', 'connect-refresh', 'connections', 'account-import', 'fees-import', 'fee-observation', 'probability-calibrate', 'execution-replay', 'history-import'])
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--dataset', choices=['all','industry','valuations','financial','macro'], default='all')
     parser.add_argument('--method', choices=['equal_weight','risk_parity','mean_variance','constrained_score'], help='仅选择研究目标，不启用正式交易')
@@ -27,6 +27,10 @@ def main(argv=None):
                         force=True, handlers=[logging.StreamHandler(),
                                   logging.FileHandler(root / 'logs' / 'app.log', encoding='utf-8')])
     try:
+        if args.command == 'dynamic-inputs':
+            from .dynamic_inputs import prepare
+            with run_lock(root):result=prepare(root)
+            print(json.dumps(result,ensure_ascii=False));return 0
         if args.command == 'active-research':
             from .active_research import run
             with run_lock(root): result=run(root)

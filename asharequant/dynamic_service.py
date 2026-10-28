@@ -4,6 +4,7 @@ import copy
 import hashlib
 import html
 import json
+import math
 import re
 import sqlite3
 import sys
@@ -64,7 +65,7 @@ def verify_projection(db,s):
 def code_fingerprints():
     # Include the shared lot conversion used by both proposal and fill checks.
     return {n:hashlib.sha256((Path(__file__).parent/n).read_bytes()).hexdigest()
-            for n in ('order_engine.py','intraday_inference.py','dynamic_service.py','intraday.py')}
+            for n in ('order_engine.py','intraday_inference.py','dynamic_service.py','intraday.py','dynamic_inputs.py','intraday_data.py')}
 
 
 def reviewed_code(db, meta):
@@ -78,7 +79,7 @@ def reviewed_code(db, meta):
     return code
 
 
-def approve_upgrade(root, expected_code, validation_sha, reason):
+def approve_upgrade(root, expected_code, validation_sha, reason, recover_failed_open=False):
     """Explicit, audited maintenance only. Never rewrite meta, state or fills.
 
     Caller must have reviewed the exact old/new code and completed verification.
@@ -89,7 +90,8 @@ def approve_upgrade(root, expected_code, validation_sha, reason):
     root = Path(root)
     with run_lock(root/'logs/dynamic'):
         at = pd.Timestamp(now())
-        if session(at, days(root)) != 'CLOSED':
+        cal=days(root);market_session=session(at,cal)
+        if market_session != 'CLOSED' and not recover_failed_open:
             raise ValueError('EXECUTION_UPGRADE_REQUIRES_CLOSED_SESSION')
         with db_open(root) as db:
             db.execute('BEGIN IMMEDIATE')
@@ -99,6 +101,16 @@ def approve_upgrade(root, expected_code, validation_sha, reason):
                 raise ValueError('EXECUTION_UPGRADE_CONFIG_CHANGED')
             if state['day'] != state['closed_day'] or any(o['status'] in ACTIVE for o in state['orders'].values()):
                 raise ValueError('EXECUTION_UPGRADE_REQUIRES_SETTLED_ACCOUNT')
+            if market_session!='CLOSED':
+                prior=cal[cal<pd.Timestamp(str(at.date()))]
+                last=state.get('last_cycle_at')
+                # Explicit operator recovery only: today's engine has never
+                # advanced beyond yesterday's settlement. No live order can be
+                # interrupted and no completed trading cycle can be rewritten.
+                if (market_session!='CONTINUOUS' or not len(prior) or state['closed_day']!=str(prior[-1].date())
+                        or (last and pd.Timestamp(last).tz_convert('Asia/Shanghai').date()>=at.date())
+                        or any(pd.Timestamp(f['at']).tz_convert('Asia/Shanghai').date()>=at.date() for f in state['executions'])):
+                    raise ValueError('EXECUTION_RECOVERY_REQUIRES_NO_CURRENT_SESSION_ACTIVITY')
             previous = reviewed_code(db, meta);current = code_fingerprints()
             if previous != expected_code:
                 raise ValueError('EXECUTION_UPGRADE_BASE_MISMATCH')
@@ -108,7 +120,8 @@ def approve_upgrade(root, expected_code, validation_sha, reason):
             review = dict(at=at.isoformat(), from_code=previous, to_code=current,
                           monitor_config_sha=digest(meta['monitor_config']),
                           risk_config_sha=digest(meta['config']), state_sha=digest(state),
-                          validation_sha=validation_sha, reason=reason)
+                          validation_sha=validation_sha, reason=reason,
+                          maintenance_mode='FAILED_OPEN_RECOVERY' if market_session!='CLOSED' else 'CLOSED_SESSION')
             put(db, 'execution_upgrades', revision, review)
             return {'status':'UPGRADE_REVIEW_RECORDED','revision':revision,'review_sha':digest(review)}
 
@@ -129,10 +142,28 @@ def initialize(root,db,at):
 
 
 def source(root,at,cal):
-    r=json.loads((root/'reports/active_research/latest/report.json').read_text())
+    from .dynamic_inputs import load
     day=pd.Timestamp(str(at.date()));prior=cal[cal<day][-1]
-    if r['predictions']['asof']!=str(prior.date()) or pd.Timestamp(r['predictions']['generated_at'])>at:raise ValueError('PREVIOUS_CLOSE_MODEL_NOT_AVAILABLE')
-    return r
+    return load(root,at,str(prior.date()))
+
+
+def day_counters(s,day):
+    fills=[f for f in s['executions'] if str(pd.Timestamp(f['at']).tz_convert('Asia/Shanghai').date())==day]
+    return dict(fees=sum(f['fee'] for f in fills),turnover=sum(f['shares']*f['price'] for f in fills))
+
+
+def reconcile_counters(db,s,at):
+    """Correct only a verified current projection, with append-only evidence."""
+    recorded=get(db,'fills')
+    if {f['id']:f for f in s['executions']}!=recorded:
+        raise ValueError('DAILY_COUNTER_FILL_EVIDENCE_MISMATCH')
+    expected=day_counters(s,s['day'])
+    if any(abs(s[k]-v)>1e-8 for k,v in expected.items()):
+        before=digest(s);old={k:s[k] for k in expected};s.update(expected)
+        correction=dict(at=at.isoformat(),day=s['day'],reason='RECONCILE_DAILY_COUNTERS_FROM_CONFIRMED_PAPER_FILLS',
+                        old=old,new=expected,before=before,after=digest(s),fills_sha=digest(recorded))
+        put(db,'counter_corrections',digest(correction),correction);persist(db,s)
+    return s
 
 
 def cycle(root):
@@ -147,11 +178,35 @@ def cycle(root):
                 if any(o['status'] in ACTIVE for o in s['orders'].values()):
                     cancel_all(s,at,'OUTSIDE_SUPPORTED_CONTINUOUS_SESSION');persist(db,s)
             return publish(root,meta,s,{'status':'MARKET_CLOSED' if mode=='CLOSED' else 'OBSERVE_ONLY'})
-        start=time.monotonic();quotes,second=collect(list(meta['universe']));received=pd.Timestamp(now());request_duration=time.monotonic()-start
+        start=time.monotonic();source_errors=[]
+        try:quotes,second=collect(list(meta['universe']),diagnostics=source_errors)
+        except (OSError,ValueError,TypeError) as exc:
+            quotes,second={},{};source_errors.append(dict(source='collection',error=type(exc).__name__))
+        received=pd.Timestamp(now());request_duration=time.monotonic()-start
         # The decision clock is AFTER the requests complete, never before an observation.
         at=received;mode=session(at,cal);refpath=root/'data/intraday/reference'/(str(at.date())+'.json')
-        ref=json.loads(refpath.read_text()) if refpath.exists() else {}
-        checks={k:quality(quotes.get(k),second.get(k),ref,k,at,cal,meta['anchor'],meta['monitor_config']) for k in meta['universe']}
+        try:
+            ref=json.loads(refpath.read_text()) if refpath.exists() else {}
+            if not isinstance(ref,dict):raise ValueError('REFERENCE_INVALID')
+            digest(ref)
+        except (OSError,ValueError):
+            ref={};source_errors.append(dict(source='reference',error='REFERENCE_INVALID'))
+        def sanitized(items,label):
+            result={}
+            for k,q in (items.items() if isinstance(items,dict) else []):
+                try:
+                    if k not in meta['universe'] or not isinstance(q,dict):raise ValueError()
+                    t=pd.Timestamp(q['asof'])
+                    if pd.isna(t) or t.tzinfo is None:raise ValueError()
+                    digest(q)  # rejects non-finite JSON before immutable recording
+                    if any(not isinstance(q.get(f),(int,float)) or not math.isfinite(q[f]) for f in ('price','previous_close')):raise ValueError()
+                    result[k]=q
+                except (ValueError,TypeError,KeyError):source_errors.append(dict(source=label,symbol=k,error='QUOTE_INVALID'))
+            return result
+        quotes=sanitized(quotes,'primary');second=sanitized(second,'secondary');checks={}
+        for k in meta['universe']:
+            try:checks[k]=quality(quotes.get(k),second.get(k),ref,k,at,cal,meta['anchor'],meta['monitor_config'])
+            except (ValueError,TypeError,KeyError,AttributeError):checks[k]=['REFERENCE_INVALID']
         for k,q in quotes.items():
             try:q['volume_shares']=observed_bar(q,at)['volume']
             except (KeyError,ValueError,TypeError):checks.setdefault(k,[]).append('PARTIAL_BAR_UNVERIFIED')
@@ -183,28 +238,33 @@ def cycle(root):
                 for row in plan['rows']:
                     k=row['symbol'];row['target_weight']=plan['weights'].get(k,0.)
                     row['reasons']=row.get('reasons',[])+audit.get('stocks',{}).get(k,{}).get('reasons',[])
-                    row['quote_time']=quotes[k]['asof'];row['original_rank']=next((x.get('original_rank') for x in r['plan']['rows'] if x['symbol']==k),None)
+                    row['quote_time']=quotes[k]['asof']
                 put(db,'events',digest(events),events)
                 s,out=step(s,plan,quotes,checks,meta['config'],meta['monitor_config'],at,{r['symbol']:r['sector'] for r in plan['rows']},continuous=mode=='CONTINUOUS')
                 out['decision_rows']=plan['rows'];out['model']=model;out['adaptive']=audit
-            except (ValueError,KeyError,TypeError,IndexError) as exc:
+            except (ValueError,KeyError,TypeError,IndexError,AttributeError,OSError) as exc:
+                reason=str(exc) if isinstance(exc,ValueError) else 'DYNAMIC_MODEL_INPUT_INVALID'
                 from .order_engine import event
                 for order in s['orders'].values():
                     if order['status'] in ACTIVE and order['side']=='BUY':event(s,order,'CANCELED',at,'DECISION_INPUT_UNAVAILABLE')
                 from .order_engine import quote_guards,value
                 checks=quote_guards(s,quotes,checks,at,meta['monitor_config']);value(s,quotes,checks,at)
                 if 'CONFIG_CHANGED' in str(exc):
-                    out=dict(status='WAIT_CONFIG_REVIEW',reason=str(exc),checks=checks)
+                    out=dict(status='WAIT_CONFIG_REVIEW',reason=reason,checks=checks)
                 else:
                     from .order_engine import risk_only_plan
-                    fallback=risk_only_plan(s,quotes,meta['config'],r['plan']['environment'] if r else None)
-                    sectors={x['symbol']:x['sector'] for x in r['plan']['rows']} if r else {}
+                    environment=r.get('environment') if isinstance(r,dict) else None
+                    fallback=risk_only_plan(s,quotes,meta['config'],environment)
+                    predictions=r.get('predictions') if isinstance(r,dict) else None
+                    rows=(predictions.get('forecasts') or []) if isinstance(predictions,dict) else []
+                    sectors={x['symbol']:x.get('sector') for x in rows if isinstance(x,dict) and x.get('symbol')}
                     # step must inspect this same quote once; guards were already evaluated above.
                     for k in quotes:
                         if not checks.get(k):s['quote_seen'].pop(k,None)
                     s,risk=step(s,fallback,quotes,checks,meta['config'],meta['monitor_config'],at,sectors,continuous=mode=='CONTINUOUS')
-                    out=dict(**risk,reason=str(exc),inference_status='UNAVAILABLE_RISK_REDUCTIONS_ONLY')
+                    out=dict(**risk,reason=reason,input_error=dict(type=type(exc).__name__,detail=str(exc)),inference_status='UNAVAILABLE_RISK_REDUCTIONS_ONLY')
             put(db,'references',digest(ref),ref)
+            out['source_errors']=source_errors
             record=dict(reference_sha=digest(ref),secondary_quotes=second,at=at.isoformat(),quotes=quotes,checks=out.get('checks',checks),source_request_seconds=request_duration,quote_age_seconds={k:(at-pd.Timestamp(q['asof'])).total_seconds() for k,q in quotes.items()},before=before,after=digest(s),result=out)
             put(db,'cycles',cycle_id,record);persist(db,s);db.commit()
         return publish(root,meta,s,out)
@@ -218,14 +278,19 @@ def close_day(root,day):
         if pd.Timestamp(day) not in cal or day>str(at.date()) or (day==str(at.date()) and (at.hour,at.minute)<(15,5)):raise ValueError('CLOSE_NOT_AVAILABLE')
         with db_open(root) as db:
             db.execute('BEGIN IMMEDIATE');meta,s=initialize(root,db,at)
-            if day<=s['closed_day']:return publish(root,meta,s,{'status':'ALREADY_SETTLED'})
+            if day<=s['closed_day']:
+                reconcile_counters(db,s,at);db.commit()
+                return publish(root,meta,s,{'status':'ALREADY_SETTLED'})
             if str(cal[cal<pd.Timestamp(day)][-1].date())!=s['closed_day']:raise ValueError('MISSING_PREVIOUS_SETTLEMENT')
             cancel_all(s,at,'END_OF_SESSION')
+            # No successful intraday cycle is required to advance daily counters.
+            # Cumulative fees and per-order minimum commissions are untouched.
+            s.update(day_counters(s,day))
             held=[k for k,p in s['positions'].items() if p['shares']];obs=evidence(root,day,held)
             if set(obs['bars'])!=set(held) or set(obs['states'])!=set(held) or any(v['corporate_action_status']!='none' for v in obs['states'].values()):raise ValueError('CLOSE_OR_CORPORATE_ACTION_UNVERIFIED')
             for k,b in obs['bars'].items():s['marks'][k]=b['close']
             equity=s['cash']+sum(p['shares']*s['marks'][k] for k,p in s['positions'].items());s['peak']=max(s['peak'],equity);s['max_drawdown']=max(s['max_drawdown'],1-equity/s['peak'])
-            nav=dict(date=day,equity=equity,cash=s['cash'],daily_pnl=equity-s['previous_close_equity'],daily_return=equity/s['previous_close_equity']-1,cumulative_return=equity/meta['initial_equity']-1,realized_pnl=s['realized_pnl'],unrealized_pnl=sum(p['shares']*s['marks'][k]-p['basis'] for k,p in s['positions'].items()),fees=s['fees'] if s['day']==day else 0.,total_fees=s['total_fees'],max_drawdown=s['max_drawdown'],mode='PAPER_ONLY')
+            nav=dict(date=day,equity=equity,cash=s['cash'],daily_pnl=equity-s['previous_close_equity'],daily_return=equity/s['previous_close_equity']-1,cumulative_return=equity/meta['initial_equity']-1,realized_pnl=s['realized_pnl'],unrealized_pnl=sum(p['shares']*s['marks'][k]-p['basis'] for k,p in s['positions'].items()),fees=s['fees'],total_fees=s['total_fees'],max_drawdown=s['max_drawdown'],mode='PAPER_ONLY')
             if abs(nav['realized_pnl']+nav['unrealized_pnl']-(equity-meta['initial_equity']))>.02:raise ValueError('PNL_RECONCILIATION_FAILED')
             put(db,'close_evidence',day,obs);put(db,'nav',day,nav);s.update(equity=equity,previous_close_equity=equity,closed_day=day,day=day,valuation_at=day+'T15:00:00+08:00',valuation_status='VERIFIED_CLOSE',unrealized_pnl=nav['unrealized_pnl']);persist(db,s);db.commit()
         return publish(root,meta,s,{'status':'SETTLED'})

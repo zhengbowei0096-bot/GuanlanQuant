@@ -9,6 +9,7 @@ from .core import now,cutoff,read_watchlist,read_snapshot,write_json
 
 def normalize(symbol,data):
     rows=data.get('daily',[]);seen=set()
+    if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):raise ValueError('INVALID_HISTORY_ROWS')
     for r in rows:
         if r['code']!=('sh.' if symbol.startswith('6') else 'sz.')+symbol:raise ValueError('SOURCE_CODE_MISMATCH')
         if r['date'] in seen:raise ValueError('DUPLICATE_SOURCE_DATE')
@@ -37,25 +38,41 @@ def fetch(root,symbol,start,end):
     with tempfile.TemporaryDirectory(prefix='aq-public-') as directory:
         job=Path(directory)/'job.json';output=Path(directory)/'result.json'
         job.write_text(json.dumps(dict(symbol=symbol,start=start,end=end,output=str(output))))
-        result=subprocess.run([sys.executable,'-m','asharequant.public_history',str(job)],cwd=root,capture_output=True,text=True,timeout=50)
-        if result.returncode or not output.exists():raise RuntimeError('BAOSTOCK_WORKER_FAILED')
-        return json.loads(output.read_text())
+        from .network_retry import retry_read
+        events=[]
+        def request():
+            if output.exists():output.unlink()
+            result=subprocess.run([sys.executable,'-m','asharequant.public_history',str(job)],cwd=root,capture_output=True,text=True,timeout=50)
+            if result.returncode or not output.exists():raise RuntimeError('BAOSTOCK_WORKER_FAILED:'+result.stderr[-800:])
+            return result
+        retry_read(request,events=events)
+        result=json.loads(output.read_text());result['transport_attempts']=events
+        return result
 
 
 def refresh(root,force=False):
     root=Path(root);end=cutoff();start=end-pd.DateOffset(years=5);path=root/'data/history/baostock/latest.json'
+    reusable={}
     if path.exists() and not force:
         old=json.loads(path.read_text())
-        if old['asof']==str(end.date()) and (pd.Timestamp(now())-pd.Timestamp(old['fetched_at'])).total_seconds()<21600:
+        if old['asof']==str(end.date()) and 0<=(pd.Timestamp(now())-pd.Timestamp(old['fetched_at'])).total_seconds()<21600:
             from .history_sources import verified
             try:
                 for reference in old['references']:verified(root,reference)
-                return {**old,'cached':True}
+                if not old.get('errors') and all(c['status']=='MATCHED' and not c['stale_for_requested_asof'] for c in old['crosschecks'].values()):return {**old,'cached':True}
+                failed={x['symbol'] for x in old['errors']}
+                for symbol,check in old['crosschecks'].items():
+                    refs=[r for r in old['references'] if r['request']['symbol']==symbol]
+                    if symbol not in failed and check['status']=='MATCHED' and not check['stale_for_requested_asof'] and refs and all(0<=(pd.Timestamp(now())-pd.Timestamp(r['fetched_at'])).total_seconds()<21600 for r in refs):
+                        reusable[symbol]=(refs,check)
             except (ValueError,OSError):pass
     from .history_sources import _save
     references=[];checks={};errors=[];daily=0
     for item in read_watchlist(root).itertuples():
         try:
+            if item.symbol in reusable:
+                refs,check=reusable[item.symbol];references.extend(refs);checks[item.symbol]=check
+                daily+=next(r['rows'] for r in refs if r['dataset']=='baostock_daily');continue
             data=fetch(root,item.symbol,str(start.date()),str(end.date()))
             if data.get('errors'):errors.extend(dict(symbol=item.symbol,**e) for e in data['errors'])
             rows=normalize(item.symbol,data)
@@ -66,7 +83,7 @@ def refresh(root,force=False):
             checks[item.symbol]['latest_source_date']=max(r['date'] for r in rows)
             checks[item.symbol]['stale_for_requested_asof']=checks[item.symbol]['latest_source_date']!=str(end.date())
             if checks[item.symbol]['stale_for_requested_asof']:errors.append(dict(symbol=item.symbol,error='SOURCE_HISTORY_STALE'))
-        except (ValueError,KeyError,OSError,RuntimeError,subprocess.TimeoutExpired) as exc:errors.append(dict(symbol=item.symbol,error=type(exc).__name__+':'+str(exc)[:160]))
+        except (ValueError,TypeError,KeyError,OSError,RuntimeError,subprocess.TimeoutExpired) as exc:errors.append(dict(symbol=item.symbol,error=type(exc).__name__+':'+str(exc)[:160]))
     result=dict(provider='BaoStock',asof=str(end.date()),start=str(start.date()),fetched_at=now().isoformat(),symbols=len(checks),daily_rows=daily,references=references,crosschecks=checks,errors=errors,
         status='SUPPLEMENTAL_REAL_HISTORY_ONLY',formal_execution_eligible=False,
         blockers=['NO_CERTIFIED_HISTORICAL_LIMIT_PRICES','CORPORATE_ACTION_PAYMENT_AND_SHARE_LISTING_DATES_NOT_CERTIFIED','NO_COMPLETE_PIT_UNIVERSE'])
@@ -83,10 +100,13 @@ def worker(job):
     if login.error_code!='0':raise RuntimeError('BAOSTOCK_LOGIN_FAILED')
     def query(name,fn):
         try:
-            response=fn()
-            if response.error_code!='0':raise ValueError('API_REJECTED:'+response.error_code)
-            frame=response.get_data();result['fields'][name]=list(frame.columns);result[name]=json.loads(frame.to_json(orient='records',force_ascii=False))
-        except Exception as exc:result['errors'].append(dict(dataset=name,error=type(exc).__name__))
+            from .network_retry import retry_read
+            def request():
+                response=fn()
+                if response.error_code!='0':raise ValueError('API_REJECTED:'+response.error_code)
+                return response.get_data()
+            frame=retry_read(request);result['fields'][name]=list(frame.columns);result[name]=json.loads(frame.to_json(orient='records',force_ascii=False))
+        except Exception as exc:result['errors'].append(dict(dataset=name,error=type(exc).__name__+':'+str(exc)[:160]))
     try:
         fields='date,code,open,high,low,close,preclose,volume,amount,adjustflag,tradestatus,isST'
         query('daily',lambda:bs.query_history_k_data_plus(code,fields,start_date=job['start'],end_date=job['end'],adjustflag='3'))

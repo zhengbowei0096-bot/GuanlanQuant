@@ -87,7 +87,8 @@ def _public(root,cfg):
     results=[];errors=[]
     for name,kind,url in [('sse_delisted','history_sse_delisted','https://www.sse.com.cn/assortment/stock/list/delisting/'),('szse_delisted','history_sz_delisted','https://www.szse.cn/market/stock/suspend/index.html')]:
         try:
-            frame=network_job(root,{**cfg,'worker_timeout_seconds':35},kind=kind)
+            from .network_retry import retry_read
+            frame=retry_read(lambda:network_job(root,{**cfg,'worker_timeout_seconds':35},kind=kind))
             for col in ('公司代码','证券代码'):
                 if col in frame:frame[col]=frame[col].astype(str).str.zfill(6)
             rows=json.loads(frame.to_json(orient='records',date_format='iso',force_ascii=False))
@@ -106,7 +107,7 @@ def refresh(root,days=1900,public=True,force=False):
     existing=root/'data/history/latest.json'
     if existing.exists() and not force:
         old=json.loads(existing.read_text())
-        if not any(e.get('provider','').startswith('Tushare') for e in old.get('errors',[])) and old.get('asof')==str(end.date()) and old.get('token_available')==bool(credential(root)) and old.get('range_start')<=str(start.date()) and (pd.Timestamp(now())-pd.Timestamp(old['fetched_at'])).total_seconds()<3600:
+        if not old.get('errors') and old.get('asof')==str(end.date()) and old.get('token_available')==bool(credential(root)) and old.get('range_start')<=str(start.date()) and 0<=(pd.Timestamp(now())-pd.Timestamp(old['fetched_at'])).total_seconds()<3600:
             # Validate cached references; a corrupted cache never becomes successful.
             try:
                 for ref in old.get('references',[]):verified(root,ref)

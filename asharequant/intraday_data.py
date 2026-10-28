@@ -34,12 +34,14 @@ def refresh_reference(root,force=False):
     result['suspensions']=suspensions(day);result['refreshed_at']=now().isoformat()
     write_json(path,result);return dict(status='REFERENCE_READY' if result['complete'] else 'PARTIAL_REFERENCE',symbols=len(result['symbols']),errors=result['errors'])
 
-def collect(symbols):
+def collect(symbols,diagnostics=None):
     with ThreadPoolExecutor(max_workers=2) as pool:
         jobs=[pool.submit(fn,symbols) for fn in (tencent_quotes,sina_quotes)];out=[]
-        for f in jobs:
+        for name,f in zip(('Tencent','Sina'),jobs):
             try:out.append(f.result())
-            except Exception:out.append({})
+            except Exception as exc:
+                out.append({})
+                if diagnostics is not None:diagnostics.append(dict(source=name,error=type(exc).__name__,recovery='NEXT_SCHEDULED_CYCLE'))
     return out
 
 def quality(q,second,reference,symbol,at,cal,anchor,cfg):

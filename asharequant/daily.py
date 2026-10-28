@@ -46,10 +46,13 @@ def _run(root, at=None, execute=None, verify=False):
                 (folder/(command+'.stderr.txt')).write_text(result.stderr)
                 return result.returncode
             status='FAILED';error=None
+            from .dynamic_service import enabled as dynamic_enabled, close_day as dynamic_close
+            dynamic=dynamic_enabled(root)
+            account_step='dynamic-inputs' if dynamic else 'paper-account'
             try:
                 # Existing run handles data, features, research, monitoring,
                 # forecasts and decisions. Subsequent stages settle OOS outcomes.
-                for command in ['history-refresh','run','paper-account','lifecycle','strict-validate','portfolio-validate','execution-replay','model-monitor','prediction-quality','strict-audit','connection-health']:
+                for command in ['history-refresh','run',account_step,'lifecycle','strict-validate','portfolio-validate','execution-replay','model-monitor','prediction-quality','strict-audit','connection-health']:
                     code=call(command);steps.append(dict(command=command,exit_code=code))
                     if code: break
                     if command=='run' and execute is None:
@@ -60,16 +63,17 @@ def _run(root, at=None, execute=None, verify=False):
             except Exception as exc: error=str(exc)
             # Settlement is independent of research success. Its own data and
             # frozen-plan checks remain mandatory; never turn a failed run green.
-            if not any(x['command']=='paper-account' for x in steps):
+            if not any(x['command']==account_step for x in steps):
                 try:
-                    code=call('paper-account')
-                    steps.append(dict(command='paper-account',exit_code=code,independent_settlement=True))
+                    code=call(account_step)
+                    steps.append(dict(command=account_step,exit_code=code,independent_recovery=True))
+                    if code:status='FAILED'
                 except Exception as exc:
-                    steps.append(dict(command='paper-account',exit_code=1,independent_settlement=True,error=str(exc)))
-                    error=(error+'; ' if error else '')+'PAPER_SETTLEMENT_FAILED:'+str(exc)
+                    status='FAILED'
+                    steps.append(dict(command=account_step,exit_code=1,independent_recovery=True,error=str(exc)))
+                    error=(error+'; ' if error else '')+account_step+':'+str(exc)
             if execute is None:
-                from .dynamic_service import enabled as dynamic_enabled, close_day as dynamic_close
-                if dynamic_enabled(root):
+                if dynamic:
                     try:
                         result_dynamic=dynamic_close(root,key)
                         steps.append(dict(command='dynamic-close',exit_code=0,status=result_dynamic['status']))

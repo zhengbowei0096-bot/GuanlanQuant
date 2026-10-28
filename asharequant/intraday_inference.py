@@ -89,7 +89,8 @@ def dynamic_plan(root, source, state, quotes, checks, cal, at):
             y,e=infer_frame(snap['hfq'],snap['raw'],q,cal,model_columns,f,at);delta=y-f['predicted_return'];f['predicted_return']=y
             f['interval80_empirical']=[v+delta for v in f['interval80_empirical']]
             f['volatility_horizon']=e['vol20']*math.sqrt(f['horizon']);f['downside_es95_normal_proxy']=min(0.,y-2.063*f['volatility_horizon'])
-            calibration=f.get('probability_calibration',{})
+            calibration=f.get('probability_calibration') or {}
+            if not isinstance(calibration,dict):raise ValueError('FROZEN_CALIBRATOR_REQUIRED:'+k)
             if calibration.get('model'):
                 f['up_probability_calibrated']=float(predict(calibration['model'],np.array([y]))[0])
             else:
@@ -100,10 +101,22 @@ def dynamic_plan(root, source, state, quotes, checks, cal, at):
             audit[k][h]=dict(predicted_return=y,original_predicted_return=y-delta,**e)
     cov=covariance(pd.concat(histories,axis=1).dropna().tail(c['covariance_days']).to_numpy(),c['minimum_covariance_days'],c['horizon'])
     policy=copy.deepcopy(source['spec'].get('policy',POLICY));policy['exposure']={'risk_off':.45,'neutral':.675,'risk_on':.9}
-    weights,rows=targets(payload,state['positions'],state['equity'],cov,c,source['plan']['environment'],policy)
+    environment=source['environment']
+    # Same baseline-risk formula and authorized multiplier, now evaluated for
+    # the current main account. No legacy account NAV or frozen plan is used.
+    base=source['base_config']
+    baseline,_=targets(original,state['positions'],state['equity'],cov,base,environment,source['spec'].get('policy',POLICY))
+    bv=np.array([baseline[r['symbol']] for r in payload['forecasts']])
+    ceiling=float(np.sqrt(max(0.,bv@cov@bv)*252/c['horizon']))*source['variant']['risk_multiplier']
+    weights,rows=targets(payload,state['positions'],state['equity'],cov,c,environment,policy)
     v=np.array([weights[r['symbol']] for r in payload['forecasts']]);sigma=float(np.sqrt(max(0.,v@cov@v)*252/c['horizon']))
-    ceiling=source['plan']['relative_volatility_ceiling'];scale=min(1.,ceiling/sigma) if sigma>0 else 1.
+    scale=min(1.,ceiling/sigma) if sigma>0 else 1.
     weights={k:w*scale for k,w in weights.items()}
-    plan=copy.deepcopy(source['plan']);plan.update(weights=weights,rows=rows,risk_priorities={r['symbol']:r['risk_priority'] for r in rows},edges={r['symbol']:dict(reference_price=r['close'],predicted_return=r['forecasts'][str(c['horizon'])]['predicted_return'],uncertainty=r['forecasts'][str(c['horizon'])]['model_uncertainty']['std']) for r in payload['forecasts']},dynamic_at=at.isoformat())
+    ranks={r['symbol']:r.get('composite_rank') for r in original.get('seven_metrics',[]) if r['horizon']==c['horizon']}
+    for row in rows:
+        row['original_rank']=ranks.get(row['symbol'])
+    plan=dict(environment=environment,relative_volatility_ceiling=ceiling,origin_session=day,
+              target_session=str(at.date()),source_sha256=before,mode='RESEARCH_PAPER_ONLY',formal_validated=False,
+              weights=weights,rows=rows,risk_priorities={r['symbol']:r['risk_priority'] for r in rows},edges={r['symbol']:dict(reference_price=r['close'],predicted_return=r['forecasts'][str(c['horizon'])]['predicted_return'],uncertainty=r['forecasts'][str(c['horizon'])]['model_uncertainty']['std']) for r in payload['forecasts']},dynamic_at=at.isoformat())
     assert digest(original)==before
     return plan,dict(at=at.isoformat(),stocks=audit,original_sha=before,formal_validated=False,mode='UNVALIDATED_RESEARCH_INFERENCE',limitation='日线训练模型应用于未完成日线，输入分布不同；区间与参数不确定性沿用盘后估计，未验证盘中覆盖率；不修改正式模型或原评分排名')
