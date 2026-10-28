@@ -271,3 +271,9 @@ The daily overview keeps only a **模型训练与验证 (Model training and vali
 ## Dynamic decision diagnostics (动态判断异常与恢复)
 
 The live account report explains missing decisions instead of leaving a header-only table. It shows the latest intraday attempt, concrete failure, stock coverage, last successful calculation and recovery time. Market closure or a deployment never proves recovery. Complete, checksum-verified decision rows and model evidence from a later observed cycle are required; old successful rows are not reused after a new failure. The desktop live entry and future daily exports use the same renderer. See [runtime diagnosis and next-opening checks](docs/DYNAMIC_EXECUTION.md#dynamic-decision-diagnostics-动态判断异常与恢复). Prediction algorithms, risk parameters and frozen ledger evidence are unchanged. (动态报告保留异常和恢复依据；下次开盘实际运行需另行核验。)
+
+## Independent intraday inputs (独立盘中模型输入)
+
+With the dynamic main account enabled, `daily` prepares sealed model inputs through `dynamic-inputs` and settles the main ledger independently. It no longer runs the legacy `paper-account` plan chain as a prerequisite. Existing prediction, calibration, allocation and risk formulas are reused; model training still occurs after the close, not on every quote.
+
+Run `python -m asharequant.cli dynamic-inputs --root .` to prepare or verify the latest completed-session inputs. Existing accounts and validated snapshots are required. A missing past model is not refitted with later data. Missing/null inputs, stale quotes and download failures remain visible; bounded retries do not relax freshness, corporate-action or risk checks. Daily fees and turnover are derived from that date's simulated fills, while cumulative costs and historical evidence remain intact. See [execution and recovery](docs/DYNAMIC_EXECUTION.md#independent-inputs-and-recovery-独立输入与故障恢复).
