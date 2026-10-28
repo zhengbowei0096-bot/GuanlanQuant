@@ -433,19 +433,19 @@
         {
           "target": "asharequant/history_sources.py",
           "label": "04_history_sources.py",
-          "purpose": "Data module: history_sources.py (历史数据及执行状态证据获取，保留来源；未知公司行动不当作没有发生。)",
+          "purpose": "Data module: source-bound historical evidence and bounded official-list retries. (来源、时间与校验保留；失败缓存不阻止重试。)",
           "subfolder": "01_Data (数据获取)"
         },
         {
           "target": "asharequant/public_history.py",
           "label": "05_public_history.py",
-          "purpose": "Data module: public_history.py (BaoStock 历史数据补充和交叉校验；补齐行情不代表已经具备成交证据。)",
+          "purpose": "Data module: BaoStock supplemental history with bounded transport retries and verified partial-cache recovery. (仅补充数据；空值显式失败，失败股票重新下载，不把旧快照标成新行情。)",
           "subfolder": "01_Data (数据获取)"
         },
         {
           "target": "asharequant/factors.py",
           "label": "06_factors.py",
-          "purpose": "Data module: factors.py (行业、估值、财务、宏观等公开因子快照采集和审计。)",
+          "purpose": "Data module: public factor snapshots with bounded read-request retries. (保留TLS验证、采集时间和原数据质量检查。)",
           "subfolder": "01_Data (数据获取)"
         },
         {
@@ -475,7 +475,7 @@
         {
           "target": "asharequant/intraday_data.py",
           "label": "11_intraday_data.py",
-          "purpose": "Data module: intraday_data.py (盘中模拟所需的报价、交易日和公司行动参考资料及质量检查。)",
+          "purpose": "Data module: timestamped dual-source quotes and explicit transport failures. (行情失败记录来源，下一轮重试，时效与交易资料门槛不变。)",
           "subfolder": "01_Data (数据获取)"
         },
         {
@@ -485,9 +485,15 @@
           "subfolder": "01_Data (数据获取)"
         },
         {
+          "target": "asharequant/network_retry.py",
+          "label": "15_network_retry.py",
+          "subfolder": "01_Data (数据获取)",
+          "purpose": "Bounded retries for read-only data requests. (仅临时网络故障有限重试，不重试订单、不忽略证书或数据错误。)"
+        },
+        {
           "target": "asharequant/intraday_inference.py",
           "label": "01_intraday_inference.py",
-          "purpose": "Prediction module: intraday_inference.py (读取模型绑定的不可变历史快照，核验版本、哈希与可用时间；复用原系数和公式进行盘中研究推理。)",
+          "purpose": "Research inference: original saved coefficients and feature formulas; current-account risk budget without old plans. (不训练盘中模型、不改风险参数，使用当时可用模型与行情。)",
           "subfolder": "02_Prediction (预测与评分)"
         },
         {
@@ -653,12 +659,6 @@
           "subfolder": "05_Validation (验证与迭代)"
         },
         {
-          "target": "asharequant/daily_iteration.py",
-          "label": "daily_iteration.py",
-          "purpose": "Daily entry for per-slot trials; retains the legacy frozen scheduler. (分组试用的每日入口，保留旧版冻结调度兼容实现。)",
-          "subfolder": "05_Validation (验证与迭代)"
-        },
-        {
           "target": "asharequant/lifecycle.py",
           "label": "07_lifecycle.py",
           "purpose": "Validation module: lifecycle.py (Champion–Challenger 生命周期：实验冻结、预测到期、独立验收、晋升、资格撤销及正式模型准入。)",
@@ -695,6 +695,18 @@
           "subfolder": "05_Validation (验证与迭代)"
         },
         {
+          "target": "asharequant/daily_iteration.py",
+          "label": "daily_iteration.py",
+          "purpose": "Daily entry for per-slot trials; retains the legacy frozen scheduler. (分组试用的每日入口，保留旧版冻结调度兼容实现。)",
+          "subfolder": "05_Validation (验证与迭代)"
+        },
+        {
+          "target": "asharequant/slot_upgrade.py",
+          "label": "slot_upgrade.py",
+          "purpose": "Per-stock/horizon research trial and immutable prospective acceptance; no trading admission. (分股票与期限研究试用、封存验证，不授予交易资格。)",
+          "subfolder": "05_Validation (验证与迭代)"
+        },
+        {
           "target": "asharequant/reporting/plain_chinese.py",
           "label": "01_reporting__plain_chinese.py",
           "purpose": "Reporting module: plain_chinese.py (报告中文阅读层，解释委托撤销、数据快照及模型校验状态；不改变原始数值与记录。)",
@@ -710,24 +722,6 @@
           "target": "asharequant/reporting/daily_bundle.py",
           "label": "03_reporting__daily_bundle.py",
           "purpose": "Daily report delivery, verified account returns and dedicated model-activity link; preserves earlier exports in backups. (每日交付与已结算收益，首页仅链接模型专栏，旧报告保留备份。)",
-          "subfolder": "06_Reporting (报告展示)"
-        },
-        {
-          "target": "asharequant/reporting/iteration_status.py",
-          "label": "iteration_status.py",
-          "purpose": "Current model-activity presentation entry and legacy study status. (当前模型活动专栏入口与旧研究状态兼容展示。)",
-          "subfolder": "06_Reporting (报告展示)"
-        },
-        {
-          "target": "asharequant/reporting/dynamic_status.py",
-          "label": "dynamic_status.py",
-          "purpose": "Reporting module: dynamic_status.py (只读核验盘中判断证据，显示具体异常、最近成功与恢复时间；缺失、覆盖不全或校验失败时解释原因，不展示空表。)",
-          "subfolder": "06_Reporting (报告展示)"
-        },
-        {
-          "target": "asharequant/reporting/model_activity.py",
-          "label": "model_activity.py",
-          "purpose": "Read-only sealed training evidence, actual trial adoption and independent acceptance panels. (只读封存训练证据，分栏显示实际试用和独立验收，不重训或改账本。)",
           "subfolder": "06_Reporting (报告展示)"
         },
         {
@@ -749,15 +743,33 @@
           "subfolder": "06_Reporting (报告展示)"
         },
         {
+          "target": "asharequant/reporting/dynamic_status.py",
+          "label": "dynamic_status.py",
+          "purpose": "Reporting module: checksum-verified decision, failure and recovery evidence with transport causes. (空表给出具体原因；休市和重启不当作恢复。)",
+          "subfolder": "06_Reporting (报告展示)"
+        },
+        {
+          "target": "asharequant/reporting/iteration_status.py",
+          "label": "iteration_status.py",
+          "purpose": "Current model-activity presentation entry and legacy study status. (当前模型活动专栏入口与旧研究状态兼容展示。)",
+          "subfolder": "06_Reporting (报告展示)"
+        },
+        {
+          "target": "asharequant/reporting/model_activity.py",
+          "label": "model_activity.py",
+          "purpose": "Reporting module: verified legacy and independent model snapshots; separate training, trial and acceptance. (按日期去重训练记录，展示当前独立模型来源，不宣称盘中已通过。)",
+          "subfolder": "06_Reporting (报告展示)"
+        },
+        {
           "target": "asharequant/dynamic_service.py",
           "label": "01_dynamic_service.py",
-          "purpose": "Operations module: dynamic_service.py (行情驱动模拟、收盘结算、中文撤单原因；执行代码升级追加审核记录，不覆盖历史账本。) 报告保留最近盘中异常与经核验的恢复状态，休市不表示已恢复。",
+          "purpose": "Operations module: quote-driven paper execution, durable null/timeout diagnostics and append-only daily counter reconciliation. (独立模型输入、空值与超时留证、按成交日核对费用；历史记录不重写。)",
           "subfolder": "07_Operations (自动运行)"
         },
         {
           "target": "asharequant/cli.py",
           "label": "02_cli.py",
-          "purpose": "Operations module: cli.py (统一命令入口：分派 run、daily、forecast、decision、paper-account 等任务。)",
+          "purpose": "CLI entry: run, daily, dynamic-inputs and explicit legacy tools. (独立准备盘中模型输入，旧账本命令保留兼容但不作为主账户前提。)",
           "subfolder": "07_Operations (自动运行)"
         },
         {
@@ -775,7 +787,7 @@
         {
           "target": "asharequant/daily.py",
           "label": "05_daily.py",
-          "purpose": "Operations module: daily.py (每日工作流水线：依次组织数据、分析、模拟账本、模型评估、验证和检查；记录步骤状态。)",
+          "purpose": "Operations module: daily research, independent model inputs and independent main-account settlement. (启用动态主账户时不运行旧盘前计划账本；失败仍单独尝试模型输入和结算。)",
           "subfolder": "07_Operations (自动运行)"
         },
         {
@@ -795,6 +807,12 @@
           "label": "08_core.py",
           "purpose": "Operations module: core.py (通用基础：北京时间、配置、股票名单、文件锁、数据校验、快照和安全文件写入。)",
           "subfolder": "07_Operations (自动运行)"
+        },
+        {
+          "target": "asharequant/dynamic_inputs.py",
+          "label": "11_dynamic_inputs.py",
+          "subfolder": "07_Operations (自动运行)",
+          "purpose": "Independent sealed model inputs using existing training and risk recipes. (独立封存每日模型，盘中不依赖旧计划，不回填历史预测。)"
         },
         {
           "target": "asharequant/factor_research.py",
@@ -921,12 +939,6 @@
           "label": "21_risk____init__.py",
           "purpose": "Compatibility module: risk/__init__.py (Python 包标识，标明该目录属于程序包；不负责独立预测或下单。)",
           "subfolder": "08_Compatibility (兼容入口)"
-        },
-        {
-          "target": "asharequant/slot_upgrade.py",
-          "label": "slot_upgrade.py",
-          "purpose": "Per-stock/horizon research trial and immutable prospective acceptance; no trading admission. (分股票与期限研究试用、封存验证，不授予交易资格。)",
-          "subfolder": "05_Validation (验证与迭代)"
         }
       ],
       "public_links": []
@@ -1929,6 +1941,7 @@
       "asharequant/data_sources/database.py",
       "asharequant/database.py",
       "asharequant/decision.py",
+      "asharequant/dynamic_inputs.py",
       "asharequant/dynamic_service.py",
       "asharequant/evaluation/__init__.py",
       "asharequant/evaluation/connection_health.py",
@@ -1953,6 +1966,7 @@
       "asharequant/model_monitor.py",
       "asharequant/model_research.py",
       "asharequant/models/__init__.py",
+      "asharequant/network_retry.py",
       "asharequant/next_session_plan.py",
       "asharequant/order_engine.py",
       "asharequant/paper_account.py",
@@ -2051,6 +2065,7 @@
       "tests/test_model_activity.py",
       "tests/test_model_candidates.py",
       "tests/test_model_monitor.py",
+      "tests/test_network_recovery.py",
       "tests/test_next_session_plan.py",
       "tests/test_paper_account.py",
       "tests/test_plain_chinese.py",
@@ -2061,6 +2076,7 @@
       "tests/test_research_policy.py",
       "tests/test_risk_control.py",
       "tests/test_risk_models.py",
+      "tests/test_runtime_recovery.py",
       "tests/test_seven_metrics.py",
       "tests/test_slot_upgrade.py",
       "tests/test_strategy_experiment.py",
