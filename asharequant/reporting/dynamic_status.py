@@ -83,7 +83,7 @@ def snapshot(db, universe, checked_at, service_status):
                 latest_attempt_at=None, last_success_at=None, last_failure_at=None,
                 recovered_at=None, reason=None, last_failure_reason=None,
                 expected_stocks=len(universe), decision_stocks=0,
-                quote_problems=[], rows=[], model_at=None, last_decision_at=None)
+                quote_problems=[], source_errors=[], rows=[], model_at=None, last_decision_at=None)
     selected = {}
     latest = failure = success = None
     first_success = None
@@ -118,6 +118,7 @@ def snapshot(db, universe, checked_at, service_status):
         info.update(latest_attempt_at=at, reason=cause,
                     decision_stocks=len({r['symbol'] for r in result.get('decision_rows', [])}))
         record = json.loads(db.execute("SELECT body FROM records WHERE kind='cycles' AND key=?", (key,)).fetchone()[0])
+        info['source_errors']=result.get('source_errors',[])
         info['quote_problems'] = [dict(symbol=k, name=universe.get(k,k),
                                      reasons=[explanation(x, universe) for x in dict.fromkeys(reasons)])
                                   for k, reasons in record.get('checks', {}).items() if reasons]
@@ -169,4 +170,7 @@ def render(info, universe, positions):
     if info['quote_problems']:
         page += '<details><summary>最近一轮行情检查问题（' + str(len(info['quote_problems'])) + '只）</summary><ul>'
         page += ''.join('<li>'+e(p['name']+'（'+p['symbol']+'）：'+'；'.join(p['reasons']))+'</li>' for p in info['quote_problems']) + '</ul></details>'
+    if info.get('source_errors'):
+        labels={'ReadTimeout':'读取超时','ConnectTimeout':'连接超时','TimeoutError':'请求超时','ConnectionError':'网络连接失败','QUOTE_INVALID':'行情字段缺失或无效','REFERENCE_INVALID':'交易参考资料为空或无法解析'}
+        page+='<p>本轮数据请求异常：'+'；'.join(e(str(x.get('source','数据源')))+'：'+e(labels.get(x.get('error'),'数据请求或解析失败')) for x in info['source_errors'])+'。下一轮按原周期重新请求，通过原时效检查后才可使用；不会以旧数据代替。</p>'
     return page + '<p>这里的恢复仅指动态研究判断恢复，不表示独立模型验收通过，也不表示已成交。</p></section>'

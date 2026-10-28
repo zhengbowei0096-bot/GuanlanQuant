@@ -6,6 +6,15 @@ from bs4 import BeautifulSoup
 from ..core import atomic_text
 
 WORDS = dict(x.split('=',1) for x in '''INVALID_QUOTE=报价或买卖盘字段缺失、非正数或无效
+DYNAMIC_MODEL_INPUT_MISSING=独立模型输入尚未准备好，等待盘后生成或核验已保存的预测
+DYNAMIC_MODEL_INPUT_INVALID=模型输入存在空值或字段结构异常，本轮研究判断暂停
+DYNAMIC_MODEL_INPUT_TAMPERED=独立模型输入完整性校验失败，禁止使用
+DYNAMIC_MODEL_SLOT_MISSING=个股的1、5、20日模型输入不完整
+DYNAMIC_MARKET_ENVIRONMENT_UNAVAILABLE=缺少对应日期的大盘风险状态，等待数据补齐后重新核验
+MISSING_SAVED_MODEL_NO_RETROSPECTIVE_TRAINING=缺少当时已保存的模型，不使用后来的数据补做旧预测
+RECONCILE_DAILY_COUNTERS_FROM_CONFIRMED_PAPER_FILLS=按本日已确认模拟成交校正当日费用与成交金额，历史记录和累计费用不变
+FAILED_OPEN_RECOVERY=开盘后尚无当日交易处理记录，已完成停服审核恢复
+DAILY_COUNTER_FILL_EVIDENCE_MISMATCH=当日费用无法与不可变模拟成交核对，暂停更正
 STALE_OR_FUTURE_QUOTE=报价过期或晚于判断时间
 LOCKED_LIMIT_OR_INVALID_BOOK=涨跌停限制或买卖盘价格关系异常
 DUPLICATE_OR_REORDERED_QUOTE=报价重复或到达顺序倒置

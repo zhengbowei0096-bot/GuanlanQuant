@@ -69,16 +69,16 @@ def collect(root, session):
     """No registry calls, schema creation, model fitting, or ledger writes."""
     root=Path(root);path=root/'data/research_paper.sqlite3'
     result=dict(days=[],active=None,issues=[])
+    predictions={};specs={}
     if not path.is_file():
         result['issues'].append('尚无封存训练记录，不能确认每日训练是否完成。')
-        return result
-    try:
-        with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as db:
-            predictions=get(db,'predictions')
-            specs={s['version']:s for kind in ('spec','spec_revisions') for s in get(db,kind).values()}
-    except (sqlite3.Error,ValueError,KeyError,TypeError):
-        result['issues'].append('训练记录读取或完整性核对失败，暂不宣称训练完成。')
-        return result
+    else:
+        try:
+            with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as db:
+                predictions=get(db,'predictions')
+                specs={s['version']:s for kind in ('spec','spec_revisions') for s in get(db,kind).values()}
+        except (sqlite3.Error,ValueError,KeyError,TypeError):
+            predictions={};result['issues'].append('训练记录读取或完整性核对失败，暂不宣称训练完成。')
     verified={}
     for key,payload in sorted(predictions.items()):
         try:
@@ -87,10 +87,28 @@ def collect(root, session):
             day=trained_rows(payload,specs);result['days'].append(day);verified[digest(payload)]=day
         except (KeyError,TypeError,ValueError):
             result['issues'].append('一条封存预测的日期或内容无法核对，未计入已训练数量。')
-    active=root/'reports/active_research/latest/report.json'
+    folder=root/'data/dynamic/model_inputs';independent={}
+    for path in sorted((folder/'versions').glob('*.json')):
+        try:
+            bundle=json.loads(path.read_text())
+            if digest(bundle)!=path.stem or pd.Timestamp(bundle['available_at'])>pd.Timestamp(now()):raise ValueError('UNVERIFIED_INPUT')
+            payload=bundle['predictions']
+            if payload['asof']>session:continue
+            spec=bundle['spec'];day=trained_rows(payload,{spec['version']:spec})
+            independent[path.stem]=day;verified[digest(payload)]=day
+        except (OSError,ValueError,KeyError,TypeError):
+            result['issues'].append('一条独立模型输入未通过完整性或时间核验，未计入训练。')
+    result['days']=sorted({day['date']:day for day in sorted(verified.values(),key=lambda d:d['generated_at'])}.values(),key=lambda d:d['date'])
+    if independent:
+        result['issues']=[message for message in result['issues'] if message!='尚无封存训练记录，不能确认每日训练是否完成。']
     try:
-        payload=json.loads(active.read_text())['predictions']
-        result['active']=verified.get(digest(payload))
+        from ..dynamic_service import enabled
+        if folder.exists() or enabled(root):
+            pointer=json.loads((folder/'latest.json').read_text())
+            result['active']=independent.get(pointer['sha256'])
+        else:
+            payload=json.loads((root/'reports/active_research/latest/report.json').read_text())['predictions']
+            result['active']=verified.get(digest(payload))
         if result['active'] is None:raise ValueError('UNVERIFIED_ACTIVE_SOURCE')
     except (OSError,ValueError,KeyError,TypeError):
         result['issues'].append('盘中服务来源文件缺失或无法与封存预测对应，不能确认其采用的方案。')
