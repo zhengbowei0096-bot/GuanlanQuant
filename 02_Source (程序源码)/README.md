@@ -13,21 +13,22 @@ Public source and documentation only. Local runtime records remain on your compu
 | [asharequant/data.py](../asharequant/data.py) | Data module: data.py (日历、历史行情增量更新、批量更新及报价获取。) |
 | [asharequant/worker.py](../asharequant/worker.py) | Data module: worker.py (独立网络工作进程，供主程序限制请求耗时、隔离网络故障。) |
 | [asharequant/connections.py](../asharequant/connections.py) | Data module: connections.py (腾讯/新浪等行情交叉检查、停牌信息、账户快照和费用资料导入；不发送真实订单。) |
-| [asharequant/history_sources.py](../asharequant/history_sources.py) | Data module: history_sources.py (历史数据及执行状态证据获取，保留来源；未知公司行动不当作没有发生。) |
-| [asharequant/public_history.py](../asharequant/public_history.py) | Data module: public_history.py (BaoStock 历史数据补充和交叉校验；补齐行情不代表已经具备成交证据。) |
-| [asharequant/factors.py](../asharequant/factors.py) | Data module: factors.py (行业、估值、财务、宏观等公开因子快照采集和审计。) |
+| [asharequant/history_sources.py](../asharequant/history_sources.py) | Data module: source-bound historical evidence and bounded official-list retries. (来源、时间与校验保留；失败缓存不阻止重试。) |
+| [asharequant/public_history.py](../asharequant/public_history.py) | Data module: BaoStock supplemental history with bounded transport retries and verified partial-cache recovery. (仅补充数据；空值显式失败，失败股票重新下载，不把旧快照标成新行情。) |
+| [asharequant/factors.py](../asharequant/factors.py) | Data module: public factor snapshots with bounded read-request retries. (保留TLS验证、采集时间和原数据质量检查。) |
 | [asharequant/indices.py](../asharequant/indices.py) | Data module: indices.py (指数数据更新、市场环境特征及指数特征研究比较。) |
 | [asharequant/compare.py](../asharequant/compare.py) | Data module: compare.py (比较保留的东方财富基准与标准化腾讯数据，检查差异。) |
 | [asharequant/data_sources/database.py](../asharequant/data_sources/database.py) | Data module: data_sources/database.py (把校验后的行情快照同步到 SQLite 数据库，避免重复导入。) |
 | [asharequant/data_sources/broker_records.py](../asharequant/data_sources/broker_records.py) | Data module: data_sources/broker_records.py (读取本地券商 CSV 导出记录；导入文件不等于实时连接券商。) |
-| [asharequant/intraday_data.py](../asharequant/intraday_data.py) | Data module: intraday_data.py (盘中模拟所需的报价、交易日和公司行动参考资料及质量检查。) |
+| [asharequant/intraday_data.py](../asharequant/intraday_data.py) | Data module: timestamped dual-source quotes and explicit transport failures. (行情失败记录来源，下一轮重试，时效与交易资料门槛不变。) |
 | [asharequant/intraday_events.py](../asharequant/intraday_events.py) | Data module: intraday_events.py (新闻及公告采集、去重、发布时间/首次观察时间记录和规则分类；不等于阅读全部公告全文。) |
+| [asharequant/network_retry.py](../asharequant/network_retry.py) | Bounded retries for read-only data requests. (仅临时网络故障有限重试，不重试订单、不忽略证书或数据错误。) |
 
 ## 02_Prediction (预测与评分)
 
 | File (文件) | Purpose (用途) |
 |---|---|
-| [asharequant/intraday_inference.py](../asharequant/intraday_inference.py) | Prediction module: intraday_inference.py (读取模型绑定的不可变历史快照，核验版本、哈希与可用时间；复用原系数和公式进行盘中研究推理。) |
+| [asharequant/intraday_inference.py](../asharequant/intraday_inference.py) | Research inference: original saved coefficients and feature formulas; current-account risk budget without old plans. (不训练盘中模型、不改风险参数，使用当时可用模型与行情。) |
 | [asharequant/forecast.py](../asharequant/forecast.py) | Prediction module: forecast.py (核心收益预测：构建技术特征与未来收益标签、拟合 Ridge、产生预测及基础研究配置。) |
 | [asharequant/seven_metrics.py](../asharequant/seven_metrics.py) | Prediction module: seven_metrics.py (汇总七项研究指标，结合九因素计算综合评分并导出结果；评分本身不授予交易资格。) |
 | [asharequant/probability_calibration.py](../asharequant/probability_calibration.py) | Prediction module: probability_calibration.py (按时间顺序校准上涨概率，使用独立日期块，检查概率估计是否具有验证依据。) |
@@ -70,13 +71,13 @@ Public source and documentation only. Local runtime records remain on your compu
 | [asharequant/validation_engine.py](../asharequant/validation_engine.py) | Validation module: validation_engine.py (固定规格训练/验证/测试和推理接口；已被查看的历史数据不冒充未触碰测试集。) |
 | [asharequant/model_research.py](../asharequant/model_research.py) | Validation module: model_research.py (新旧候选模型的配对历史比较、显著性检验及前瞻影子预测记录。) |
 | [asharequant/iteration.py](../asharequant/iteration.py) | Fingerprint-bound candidate search and legacy cadence retained for audit; current CLI scheduling is in daily_iteration.py. (保留原候选算法与旧调度供指纹审计，当前日常调度见 daily_iteration.py。) |
-| [asharequant/daily_iteration.py](../asharequant/daily_iteration.py) | Daily entry for per-slot trials; retains the legacy frozen scheduler. (分组试用的每日入口，保留旧版冻结调度兼容实现。) |
 | [asharequant/lifecycle.py](../asharequant/lifecycle.py) | Validation module: lifecycle.py (Champion–Challenger 生命周期：实验冻结、预测到期、独立验收、晋升、资格撤销及正式模型准入。) |
 | [asharequant/model_monitor.py](../asharequant/model_monitor.py) | Validation module: model_monitor.py (持续记录预测误差、评估模型状态，必要时限制不再满足要求的模型。) |
 | [asharequant/evaluation/prediction_quality.py](../asharequant/evaluation/prediction_quality.py) | Validation module: evaluation/prediction_quality.py (不可随意改写的预测与实际结果记录，计算到期误差及统计质量；本身不是交易开关。) |
 | [asharequant/evaluation/factor_research.py](../asharequant/evaluation/factor_research.py) | Validation module: evaluation/factor_research.py (按信息发布时间对齐因子并进行研究比较；诊断回测不直接晋升正式模型。) |
 | [asharequant/evaluation/validation_readiness.py](../asharequant/evaluation/validation_readiness.py) | Validation module: evaluation/validation_readiness.py (解释模型还缺哪些验证条件，不降低门槛、不承诺何时必定通过。) |
 | [asharequant/evaluation/connection_health.py](../asharequant/evaluation/connection_health.py) | Validation module: evaluation/connection_health.py (汇总数据连接及无人值守流程准备状态，保存检查证据。) |
+| [asharequant/daily_iteration.py](../asharequant/daily_iteration.py) | Daily entry for per-slot trials; retains the legacy frozen scheduler. (分组试用的每日入口，保留旧版冻结调度兼容实现。) |
 | [asharequant/slot_upgrade.py](../asharequant/slot_upgrade.py) | Per-stock/horizon research trial and immutable prospective acceptance; no trading admission. (分股票与期限研究试用、封存验证，不授予交易资格。) |
 
 ## 06_Reporting (报告展示)
@@ -86,25 +87,26 @@ Public source and documentation only. Local runtime records remain on your compu
 | [asharequant/reporting/plain_chinese.py](../asharequant/reporting/plain_chinese.py) | Reporting module: plain_chinese.py (报告中文阅读层，解释委托撤销、数据快照及模型校验状态；不改变原始数值与记录。) |
 | [asharequant/reporting/report.py](../asharequant/reporting/report.py) | Reporting module: reporting/report.py (生成主要分析网页、图表和指标展示。) |
 | [asharequant/reporting/daily_bundle.py](../asharequant/reporting/daily_bundle.py) | Daily report delivery, verified account returns and dedicated model-activity link; preserves earlier exports in backups. (每日交付与已结算收益，首页仅链接模型专栏，旧报告保留备份。) |
-| [asharequant/reporting/iteration_status.py](../asharequant/reporting/iteration_status.py) | Current model-activity presentation entry and legacy study status. (当前模型活动专栏入口与旧研究状态兼容展示。) |
-| [asharequant/reporting/dynamic_status.py](../asharequant/reporting/dynamic_status.py) | Reporting module: dynamic_status.py (只读核验盘中判断证据，显示具体异常、最近成功与恢复时间；缺失、覆盖不全或校验失败时解释原因，不展示空表。) |
-| [asharequant/reporting/model_activity.py](../asharequant/reporting/model_activity.py) | Read-only sealed training evidence, actual trial adoption and independent acceptance panels. (只读封存训练证据，分栏显示实际试用和独立验收，不重训或改账本。) |
 | [asharequant/reporting/holding_summary.py](../asharequant/reporting/holding_summary.py) | Reporting module: reporting/holding_summary.py (从已冻结的研究计划提取现有持仓操作摘要，展示建议股数和依据。) |
 | [asharequant/reporting/probability_display.py](../asharequant/reporting/probability_display.py) | Reporting module: reporting/probability_display.py (展示研究上涨概率和未通过原因，避免把研究估计写成已验证概率。) |
 | [asharequant/reporting/report_navigation.py](../asharequant/reporting/report_navigation.py) | Reporting module: reporting/report_navigation.py (管理完整总览与动态模拟入口，每30秒同步桌面实时展示及附件，隐藏旧策略；不修改模型或账本。) |
+| [asharequant/reporting/dynamic_status.py](../asharequant/reporting/dynamic_status.py) | Reporting module: checksum-verified decision, failure and recovery evidence with transport causes. (空表给出具体原因；休市和重启不当作恢复。) |
+| [asharequant/reporting/iteration_status.py](../asharequant/reporting/iteration_status.py) | Current model-activity presentation entry and legacy study status. (当前模型活动专栏入口与旧研究状态兼容展示。) |
+| [asharequant/reporting/model_activity.py](../asharequant/reporting/model_activity.py) | Reporting module: verified legacy and independent model snapshots; separate training, trial and acceptance. (按日期去重训练记录，展示当前独立模型来源，不宣称盘中已通过。) |
 
 ## 07_Operations (自动运行)
 
 | File (文件) | Purpose (用途) |
 |---|---|
-| [asharequant/dynamic_service.py](../asharequant/dynamic_service.py) | Operations module: dynamic_service.py (行情驱动模拟、收盘结算、中文撤单原因；执行代码升级追加审核记录，不覆盖历史账本。) 报告保留最近盘中异常与经核验的恢复状态，休市不表示已恢复。 |
-| [asharequant/cli.py](../asharequant/cli.py) | Operations module: cli.py (统一命令入口：分派 run、daily、forecast、decision、paper-account 等任务。) |
+| [asharequant/dynamic_service.py](../asharequant/dynamic_service.py) | Operations module: quote-driven paper execution, durable null/timeout diagnostics and append-only daily counter reconciliation. (独立模型输入、空值与超时留证、按成交日核对费用；历史记录不重写。) |
+| [asharequant/cli.py](../asharequant/cli.py) | CLI entry: run, daily, dynamic-inputs and explicit legacy tools. (独立准备盘中模型输入，旧账本命令保留兼容但不作为主账户前提。) |
 | [asharequant/mac_alerts.py](../asharequant/mac_alerts.py) | Operations module: mac_alerts.py (独立无声 Mac 弹窗：仅提醒服务异常及恢复，交易事件不弹窗；不调用模型、不修改账本。) |
 | [asharequant/scheduler.py](../asharequant/scheduler.py) | Operations module: scheduler.py (本地定时服务唤醒后的检查器：按北京时间和交易日判断是否应运行，记录尝试及结果；不能自行唤醒关机电脑。) |
-| [asharequant/daily.py](../asharequant/daily.py) | Operations module: daily.py (每日工作流水线：依次组织数据、分析、模拟账本、模型评估、验证和检查；记录步骤状态。) |
+| [asharequant/daily.py](../asharequant/daily.py) | Operations module: daily research, independent model inputs and independent main-account settlement. (启用动态主账户时不运行旧盘前计划账本；失败仍单独尝试模型输入和结算。) |
 | [asharequant/code_guard.py](../asharequant/code_guard.py) | Operations module: code_guard.py (代码实验隔离、测试检查、发布和回滚工具；每日任务不会自行发布未经验证代码。) |
 | [asharequant/work_archive.py](../asharequant/work_archive.py) | Operations module: work_archive.py (按工作日期保存运行记录、源码快照和报告关联，供追溯和恢复。) |
 | [asharequant/core.py](../asharequant/core.py) | Operations module: core.py (通用基础：北京时间、配置、股票名单、文件锁、数据校验、快照和安全文件写入。) |
+| [asharequant/dynamic_inputs.py](../asharequant/dynamic_inputs.py) | Independent sealed model inputs using existing training and risk recipes. (独立封存每日模型，盘中不依赖旧计划，不回填历史预测。) |
 
 ## 08_Compatibility (兼容入口)
 
